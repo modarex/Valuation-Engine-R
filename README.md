@@ -36,3 +36,10 @@ Limitations
 2. Coverage and completeness vary across companies and regions
 
 3. Projections are mechanically derived and do not incorporate management guidance
+
+Access
+
+Run locally in R:
+
+Sys.setenv(FMP_API_KEY = "your_api_key")
+shiny::runApp("R/shiny")
