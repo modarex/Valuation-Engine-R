@@ -1,4 +1,3 @@
-# R/valuation/financials.R
 suppressPackageStartupMessages({
   library(dplyr)
   library(tibble)
@@ -21,8 +20,7 @@ fmp_cashflow <- function(symbol, period = "annual", limit = 8) {
 }
 
 calc_fcf_history <- function(cf_tbl) {
-  # Works for FMP-style cash flow fields
-  # operatingCashFlow, capitalExpenditure are the usual keys
+  
   stopifnot(!is.null(cf_tbl))
   cf_tbl %>%
     mutate(
