@@ -7,10 +7,6 @@ suppressPackageStartupMessages({
   library(tibble)
 })
 
-# ----------------------------
-# Helpers
-# ----------------------------
-
 num0 <- function(x) {
   x <- suppressWarnings(as.numeric(x))
   ifelse(is.na(x), 0, x)
@@ -23,17 +19,14 @@ pick_first_col <- function(df, candidates) {
 }
 
 coalesce_cols <- function(df, candidates) {
-  # Return a numeric vector. First existing column wins, NA -> 0.
   col <- pick_first_col(df, candidates)
   if (is.null(col)) return(rep(NA_real_, nrow(df)))
   suppressWarnings(as.numeric(df[[col]]))
 }
 
 normalize_period_date <- function(x) {
-  # Handles common "date"/"fillingDate"/"acceptedDate" variations
   if (inherits(x, "Date")) return(x)
   if (is.numeric(x)) return(as.Date(x, origin = "1970-01-01"))
-  # parse safely
   out <- suppressWarnings(as.Date(x))
   if (all(is.na(out))) {
     out <- suppressWarnings(as.Date(substr(as.character(x), 1, 10)))
@@ -41,15 +34,7 @@ normalize_period_date <- function(x) {
   out
 }
 
-# ----------------------------
-# Main: Build FCF from IS + BS
-# ----------------------------
-# is_df: income statement "as reported" history (most-recent first or any order)
-# bs_df: balance sheet "as reported" history (same)
-#
-# Returns tibble:
-#   date, fcf, net_income, dep_amort, capex_proxy, d_wc, flags
-#
+
 fcf_from_is_bs <- function(is_df, bs_df, max_years = 10) {
   if (is.null(is_df) || is.null(bs_df) || nrow(is_df) == 0 || nrow(bs_df) == 0) {
     return(tibble(
@@ -63,7 +48,6 @@ fcf_from_is_bs <- function(is_df, bs_df, max_years = 10) {
     ))
   }
 
-  # ---- identify date columns
   is_date_col <- pick_first_col(is_df, c("date", "calendarYear", "fillingDate", "acceptedDate"))
   bs_date_col <- pick_first_col(bs_df, c("date", "calendarYear", "fillingDate", "acceptedDate"))
 
@@ -95,23 +79,17 @@ fcf_from_is_bs <- function(is_df, bs_df, max_years = 10) {
     distinct(date, .keep_all = TRUE) %>%
     slice_head(n = max_years)
 
-  # ---- pick key fields (robust column name candidates)
-  # Net income (IS)
+
   is_net_income <- coalesce_cols(is2, c("netIncome", "NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"))
-  # Depreciation & amortization (IS) (often missing)
   is_da <- coalesce_cols(is2, c("depreciationAndAmortization", "DepreciationDepletionAndAmortization"))
 
-  # Working capital components (BS)
   bs_ca <- coalesce_cols(bs2, c("totalCurrentAssets", "TotalCurrentAssets"))
   bs_cl <- coalesce_cols(bs2, c("totalCurrentLiabilities", "TotalCurrentLiabilities"))
 
-  # PPE / fixed assets proxy (BS)
   bs_ppe <- coalesce_cols(bs2, c("propertyPlantEquipmentNet", "PropertyPlantAndEquipmentNet", "propertyPlantEquipmentNetOfAccumulatedDepreciation"))
 
-  # If PPE missing, try total assets as last resort (crude, but better than nothing)
   bs_total_assets <- coalesce_cols(bs2, c("totalAssets", "TotalAssets"))
 
-  # ---- combine on date (inner join so we only compute where both exist)
   df <- is2 %>%
     select(date) %>%
     inner_join(
@@ -134,7 +112,6 @@ fcf_from_is_bs <- function(is_df, bs_df, max_years = 10) {
     ) %>%
     arrange(desc(date))
 
-  # ---- flags for approximations
   df <- df %>%
     mutate(
       flag_no_da = is.na(dep_amort),
@@ -150,8 +127,7 @@ fcf_from_is_bs <- function(is_df, bs_df, max_years = 10) {
       working_capital = current_assets - current_liabilities
     )
 
-  # ---- compute deltas (need t and t-1)
-  # With dates sorted desc, lag() is prior period
+  
   df <- df %>%
     mutate(
       wc_prev = lag(working_capital),
@@ -160,15 +136,13 @@ fcf_from_is_bs <- function(is_df, bs_df, max_years = 10) {
 
       d_wc = ifelse(is.na(wc_prev), NA_real_, working_capital - wc_prev),
 
-      # CAPEX proxy:
-      # If PPE exists for both periods: (PPE_t - PPE_{t-1}) + D&A
+      
       capex_proxy =
         case_when(
           !flag_no_ppe & !is.na(ppe_prev) ~ (ppe_net - ppe_prev) + dep_amort,
           TRUE ~ NA_real_
         ),
 
-      # If PPE missing, fallback to (TotalAssets_t - TotalAssets_{t-1}) + D&A (very crude)
       capex_proxy =
         ifelse(
           is.na(capex_proxy) & !is.na(total_assets) & !is.na(total_assets_prev),
@@ -179,11 +153,10 @@ fcf_from_is_bs <- function(is_df, bs_df, max_years = 10) {
       flag_capex_from_total_assets = is.na(ppe_prev) | flag_no_ppe
     )
 
-  # ---- final FCF
   df <- df %>%
     mutate(
       net_income = num0(net_income),
-      d_wc = ifelse(is.na(d_wc), 0, d_wc),  # if first row, ΔWC = 0 (documented)
+      d_wc = ifelse(is.na(d_wc), 0, d_wc),  
       capex_proxy = ifelse(is.na(capex_proxy), 0, capex_proxy),
 
       fcf = net_income + dep_amort - capex_proxy - d_wc,
