@@ -13,9 +13,9 @@ What Was Done:
 
 3. Performed valuation using:
 
-a) Discounted Cash Flow (DCF)
+     a) Discounted Cash Flow (DCF)
 
-b) Comparable-company multiples
+     b) Comparable-company multiples
 
 c) Integrated valuation logic into an interactive Shiny application
 
